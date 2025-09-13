@@ -6,13 +6,19 @@
 #include "soc/rtc_cntl_reg.h"
 #include "driver/rtc_io.h"
 #include <EEPROM.h>
+#include <LiquidCrystal_I2C.h>
+#include <AlashUltrasonic.h>
 
 #define EEPROM_SIZE 1
 #define CAMERA_MODEL_AI_THINKER
 #include "camera_lib/camera_pins.h"
 
-const byte trigPin = 12; // TODO: CHANGE PIN LATER
-const byte echoPin = 13; // TODO: CHANGE PIN LATER
+const byte oneWirePin = 12; // TODO: CHANGE PIN LATER
+const byte sdaPin = 4;
+const byte sclPin = 16;
+
+LiquidCrystal_I2C lcd(0x27, 20, 4);
+AlashUltrasonic sensorOneWire(oneWirePin, ONEWIRE_MODE);
 int pictureNumber = 0;
 float distanceCm = 1000.0;
 
@@ -52,13 +58,7 @@ void ultraSonicTask(void *parameter)
 {
   for (;;)
   {
-    digitalWrite(trigPin, LOW);
-    delayMicroseconds(2);
-    digitalWrite(trigPin, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trigPin, LOW);
-    float duration = pulseIn(echoPin, HIGH);
-    distanceCm = duration * 340 / 2;
+    distanceCm = sensorOneWire.getDistance();
   }
 }
 
@@ -69,11 +69,8 @@ void setup()
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
-
-  pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
-  pinMode(echoPin, INPUT);  // Sets the echoPin as an Input
-
-  camera_config_t config = cameraInit(); // Configs
+  
+  camera_config_t config = cameraInit(); 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK)
   {
@@ -87,12 +84,14 @@ void setup()
   s->set_brightness(s, 1);
   s->set_saturation(s, -1);
   s->set_awb_gain(s, 2);
-
-  if (!SD_MMC.begin())
+  
+  if (!SD_MMC.begin("/sdcard", true, false))
   {
     Serial.println("SD Card Mount Failed");
     return;
   }
+  sensorOneWire.begin();
+  digitalWrite(oneWirePin, HIGH); // Pull up I2C data line
 
   uint8_t cardType = SD_MMC.cardType();
   if (cardType == CARD_NONE)
@@ -106,7 +105,7 @@ void setup()
   xTaskCreatePinnedToCore(
       ultraSonicTask,    // Task function
       "UltraSonicTask",  // Task name
-      256,               // Stack size (bytes)
+      1024,               // Stack size (bytes)
       NULL,              // Parameters
       1,                 // Priority
       &ultraSonicHandle, // Task handle
@@ -116,12 +115,9 @@ void setup()
 
 void loop()
 {
-  static bool latchSaveImage = false;
-  if (distanceCm < 30)
+  Serial.printf("Distance: %.2f cm\n", distanceCm);
+  if (distanceCm < 20)
   {
-    if (latchSaveImage)
-      return;
-
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb)
     {
@@ -145,17 +141,11 @@ void loop()
       Serial.printf("Saved file to path: %s\n", path.c_str());
       EEPROM.write(0, pictureNumber);
       EEPROM.commit();
-      latchSaveImage = true;
     }
     esp_camera_fb_return(fb);
 
     pictureNumber++; // Increment for next image
     if (pictureNumber > 9999)
       pictureNumber = 0; // Optional: wrap after 9999
-  }
-
-  else
-  {
-    latchSaveImage = false;
   }
 }
