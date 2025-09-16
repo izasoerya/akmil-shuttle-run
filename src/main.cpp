@@ -2,31 +2,36 @@
 #include <time.h>
 
 // WiFi credentials (fill in your SSID and password below)
-const char* ssid = "Subhanallah";
-const char* password = "muhammadnabiyullah";
+const char *ssid = "Subhanallah";
+const char *password = "muhammadnabiyullah";
 
 // WiFi connection logic
-void connectToWiFi() {
+void connectToWiFi()
+{
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
   int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry < 40) { // ~20 seconds timeout
+  while (WiFi.status() != WL_CONNECTED && retry < 40)
+  { // ~20 seconds timeout
     delay(500);
     Serial.print(".");
     retry++;
   }
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED)
+  {
     Serial.println("\nWiFi connected");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
-  } else {
+  }
+  else
+  {
     Serial.println("\nWiFi connection failed!");
   }
 }
 
 // NTP
-const char* ntpServer = "pool.ntp.org";
+const char *ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 7 * 3600; // GMT+7
 const int daylightOffset_sec = 0;
 
@@ -41,12 +46,13 @@ char timeString[16] = "--:--:--";
 #include <EEPROM.h>
 #include <LiquidCrystal_I2C.h>
 #include <AlashUltrasonic.h>
+#include <Wire.h>
 
 #define EEPROM_SIZE 1
 #define CAMERA_MODEL_AI_THINKER
 #include "camera_lib/camera_pins.h"
 
-const byte oneWirePin = 12; 
+const byte oneWirePin = 12;
 const byte sdaPin = 16;
 const byte sclPin = 13;
 
@@ -55,25 +61,32 @@ AlashUltrasonic sensorOneWire(oneWirePin, ONEWIRE_MODE);
 int pictureNumber = 0;
 volatile float distanceCm = 1000.0;
 
-void showLcdContent(const char* timeStr, float distance);
+void showLcdContent(const char *timeStr, float distance);
 
-void ultrasonicTask(void *pvParameters) {
-  while (1) {
+void ultrasonicTask(void *pvParameters)
+{
+  while (1)
+  {
     float d = sensorOneWire.getDistance();
-    if(d > 20)
+    if (d > 20)
       distanceCm = d;
     vTaskDelay(pdMS_TO_TICKS(100)); // 100ms interval
   }
 }
 
 // RTOS: Main application task
-void mainTask(void *pvParameters) {
-  while (1) {
+void mainTask(void *pvParameters)
+{
+  while (1)
+  {
     // Get current time
     struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
+    if (getLocalTime(&timeinfo))
+    {
       snprintf(timeString, sizeof(timeString), "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-    } else {
+    }
+    else
+    {
       strncpy(timeString, "--:--:--", sizeof(timeString));
     }
 
@@ -118,7 +131,6 @@ void mainTask(void *pvParameters) {
   }
 }
 
-
 camera_config_t cameraInit()
 {
   camera_config_t config;
@@ -144,14 +156,15 @@ camera_config_t cameraInit()
   config.pixel_format = PIXFORMAT_JPEG;
   config.frame_size = FRAMESIZE_VGA;
   config.jpeg_quality = 10;
-  config.fb_location = CAMERA_FB_IN_DRAM; 
+  config.fb_location = CAMERA_FB_IN_DRAM;
   config.fb_count = 1;
 
   return config;
 }
 
 // Function to show time and distance on the LCD
-void showLcdContent(const char* timeStr, float distance) {
+void showLcdContent(const char *timeStr, float distance)
+{
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Time: ");
@@ -162,7 +175,8 @@ void showLcdContent(const char* timeStr, float distance) {
   lcd.print(" cm   ");
 }
 
-void setup() {
+void setup()
+{
   // connectToWiFi();
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
@@ -171,8 +185,8 @@ void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
-  
-  camera_config_t config = cameraInit(); 
+
+  camera_config_t config = cameraInit();
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK)
   {
@@ -186,7 +200,7 @@ void setup() {
   s->set_brightness(s, 1);
   s->set_saturation(s, -1);
   s->set_awb_gain(s, 2);
-  
+
   if (!SD_MMC.begin("/sdcard", true, false))
   {
     Serial.println("SD Card Mount Failed");
@@ -211,27 +225,28 @@ void setup() {
 
   // RTOS: Start ultrasonic reading task
   xTaskCreatePinnedToCore(
-    ultrasonicTask,    // Task function
-    "UltrasonicTask", // Name
-    2048,             // Stack size
-    NULL,             // Parameters
-    1,                // Priority
-    NULL,             // Task handle
-    1                 // Run on core 1
+      ultrasonicTask,   // Task function
+      "UltrasonicTask", // Name
+      2048,             // Stack size
+      NULL,             // Parameters
+      1,                // Priority
+      NULL,             // Task handle
+      1                 // Run on core 1
   );
 
   // RTOS: Start main application task
   xTaskCreatePinnedToCore(
-    mainTask,         // Task function
-    "MainTask",      // Name
-    4096,             // Stack size
-    NULL,             // Parameters
-    1,                // Priority
-    NULL,             // Task handle
-    1                 // Run on core 1
+      mainTask,   // Task function
+      "MainTask", // Name
+      4096,       // Stack size
+      NULL,       // Parameters
+      1,          // Priority
+      NULL,       // Task handle
+      1           // Run on core 1
   );
 }
 
-void loop() {
+void loop()
+{
   // Empty. Main logic runs in mainTask (FreeRTOS)
 }
