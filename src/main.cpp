@@ -268,3 +268,65 @@ void setup()
 }
 
 void loop() { vTaskDelete(NULL); }
+
+// #include <Arduino.h>
+// #include <SoftwareSerial.h>
+
+// // Konfigurasi pin UART
+// #define ULTRASONIC_RX 25 // Pin RX untuk membaca data dari sensor
+// #define ULTRASONIC_TX 26 // Pin TX (opsional, tidak dipakai, tapi perlu definisi)
+
+// // Inisialisasi ESPSoftwareSerial
+// EspSoftwareSerial::UART UltrasonicSerial;
+
+// void setup()
+// {
+//   Serial.begin(115200);
+
+//   // Inisialisasi UART untuk sensor
+//   UltrasonicSerial.begin(57600, SWSERIAL_8N1, ULTRASONIC_RX, ULTRASONIC_TX); // Baudrate sesuai modul
+
+//   Serial.println("Ultrasonic sensor serial mode started (SoftwareSerial)...");
+// }
+// byte sensorData[4];
+// void loop()
+// {
+//   if (UltrasonicSerial.available() >= 4)
+//   {
+//     // Cari byte awal (0xFF) untuk sinkronisasi
+//     if (UltrasonicSerial.read() == 0xFF)
+//     {
+//       // Jika byte awal ditemukan, baca 3 byte berikutnya
+//       sensorData[0] = 0xFF;
+//       sensorData[1] = UltrasonicSerial.read(); // High Byte (H_DATA)
+//       sensorData[2] = UltrasonicSerial.read(); // Low Byte (L_DATA)
+//       sensorData[3] = UltrasonicSerial.read(); // Checksum (SUM)
+
+//       // Hitung checksum untuk validasi data
+//       byte checksum = (sensorData[0] + sensorData[1] + sensorData[2]) & 0xFF;
+
+//       // Bandingkan checksum yang dihitung dengan yang diterima
+//       if (sensorData[3] == checksum)
+//       {
+//         // Jika data valid, hitung jaraknya
+//         // Jarak (mm) = (High Byte * 256) + Low Byte
+//         int distance_mm = (sensorData[1] << 8) | sensorData[2];
+
+//         // Tampilkan hasilnya di Serial Monitor
+//         Serial.print("Jarak: ");
+//         Serial.print(distance_mm);
+//         Serial.print(" mm  |  ");
+//         Serial.print((float)distance_mm / 10.0); // Konversi ke cm
+//         Serial.println(" cm");
+//       }
+//       else
+//       {
+//         // Jika checksum tidak cocok, berarti data korup
+//         Serial.println("Checksum error: Data tidak valid.");
+//       }
+//     }
+//   }
+
+//   // Beri jeda singkat
+//   delay(100);
+// }
