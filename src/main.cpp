@@ -55,13 +55,15 @@ char timeString[16] = "--:--:--";
 const byte oneWirePin = 12;
 const byte sdaPin = 16;
 const byte sclPin = 13;
+const byte ledPin = 4; // Built-in LED pin for ESP32
 
+TaskHandle_t handlerFlashTask;
+TaskHandle_t handlerMainTask;
+TaskHandle_t handlerLcdMessageTask;
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 AlashUltrasonic sensorOneWire(oneWirePin, ONEWIRE_MODE);
 int pictureNumber = 0;
 volatile float distanceCm = 1000.0;
-
-void showLcdContent(const char *timeStr, float distance);
 
 void ultrasonicTask(void *pvParameters)
 {
@@ -70,32 +72,9 @@ void ultrasonicTask(void *pvParameters)
     float d = sensorOneWire.getDistance();
     if (d > 20)
       distanceCm = d;
-    vTaskDelay(pdMS_TO_TICKS(100)); // 100ms interval
-  }
-}
-
-// RTOS: Main application task
-void mainTask(void *pvParameters)
-{
-  while (1)
-  {
-    // Get current time
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo))
-    {
-      snprintf(timeString, sizeof(timeString), "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-    }
-    else
-    {
-      strncpy(timeString, "--:--:--", sizeof(timeString));
-    }
-
-    // Show on LCD
-    showLcdContent(timeString, distanceCm);
-
-    Serial.printf("Time: %s | Distance: %.2f cm\n", timeString, distanceCm);
     if (distanceCm < 40)
     {
+      // vTaskResume(handlerFlashTask);
       camera_fb_t *fb = esp_camera_fb_get();
       if (!fb)
       {
@@ -126,8 +105,65 @@ void mainTask(void *pvParameters)
       pictureNumber++; // Increment for next image
       if (pictureNumber > 9999)
         pictureNumber = 0; // Optional: wrap after 9999
+      vTaskSuspend(handlerMainTask);
+      vTaskResume(handlerLcdMessageTask);
     }
+    vTaskDelay(pdMS_TO_TICKS(30)); // 30ms interval
+  }
+}
+
+// Forward declaration for showLcdBasicContent
+void showLcdBasicContent(const char *timeStr, float distance);
+
+// RTOS: Main application task
+void mainTask(void *pvParameters)
+{
+  while (1)
+  {
+    // Get current time
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo))
+    {
+      snprintf(timeString, sizeof(timeString), "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+    }
+    else
+    {
+      strncpy(timeString, "--:--:--", sizeof(timeString));
+    }
+
+    // Show on LCD
+    showLcdBasicContent(timeString, distanceCm);
+
+    Serial.printf("Time: %s | Distance: %.2f cm\n", timeString, distanceCm);
     vTaskDelay(pdMS_TO_TICKS(1000)); // Main task loop delay (update LCD every second)
+  }
+}
+
+// RTOS: LED flash task
+void flashLedTask(void *pvParameters)
+{
+  while (1)
+  {
+    digitalWrite(ledPin, HIGH);     // Turn LED on
+    vTaskDelay(pdMS_TO_TICKS(250)); // Keep LED on for 250ms
+    digitalWrite(ledPin, LOW);      // Turn LED off
+    vTaskSuspend(NULL);             // Suspend itself after flashing
+  }
+}
+
+// RTOS: LCD message task
+void lcdMessageTask(void *pvParameters)
+{
+  while (1)
+  {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Picture Taken!");
+    Serial.println("Picture Taken");
+
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    vTaskResume(handlerMainTask);
+    vTaskSuspend(NULL);
   }
 }
 
@@ -162,8 +198,7 @@ camera_config_t cameraInit()
   return config;
 }
 
-// Function to show time and distance on the LCD
-void showLcdContent(const char *timeStr, float distance)
+void showLcdBasicContent(const char *timeStr, float distance)
 {
   lcd.clear();
   lcd.setCursor(0, 0);
@@ -177,7 +212,7 @@ void showLcdContent(const char *timeStr, float distance)
 
 void setup()
 {
-  // connectToWiFi();
+  connectToWiFi();
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
@@ -207,12 +242,16 @@ void setup()
     return;
   }
   sensorOneWire.begin();
-  digitalWrite(oneWirePin, HIGH); // Pull up I2C data line
+  digitalWrite(oneWirePin, HIGH);
+
+  // Initialize LED pin
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW); // Start with LED off
 
   Wire.begin(sdaPin, sclPin, 100000); // Start I2C
   lcd.init();
   lcd.backlight();
-  showLcdContent("--:--:--", distanceCm);
+  showLcdBasicContent("--:--:--", distanceCm);
 
   uint8_t cardType = SD_MMC.cardType();
   if (cardType == CARD_NONE)
@@ -227,7 +266,7 @@ void setup()
   xTaskCreatePinnedToCore(
       ultrasonicTask,   // Task function
       "UltrasonicTask", // Name
-      2048,             // Stack size
+      8192,             // Stack size
       NULL,             // Parameters
       1,                // Priority
       NULL,             // Task handle
@@ -236,14 +275,35 @@ void setup()
 
   // RTOS: Start main application task
   xTaskCreatePinnedToCore(
-      mainTask,   // Task function
-      "MainTask", // Name
-      4096,       // Stack size
-      NULL,       // Parameters
-      1,          // Priority
-      NULL,       // Task handle
-      1           // Run on core 1
+      mainTask,         // Task function
+      "MainTask",       // Name
+      4096,             // Stack size
+      NULL,             // Parameters
+      1,                // Priority
+      &handlerMainTask, // Task handle
+      0                 // Run on core 0
   );
+
+  // xTaskCreatePinnedToCore(
+  //     flashLedTask,      // Task function
+  //     "FlashTask",       // Name
+  //     1024,              // Stack size
+  //     NULL,              // Parameters
+  //     1,                 // Priority
+  //     &handlerFlashTask, // Task handle
+  //     0);                // Run on core 0
+
+  xTaskCreatePinnedToCore(
+      lcdMessageTask,         // Task function
+      "LcdMessageTask",       // Name
+      4096,                   // Stack size
+      NULL,                   // Parameters
+      1,                      // Priority
+      &handlerLcdMessageTask, // Task handle
+      0);                     // Run on core 0
+
+  // vTaskSuspend(handlerFlashTask);
+  vTaskSuspend(handlerLcdMessageTask);
 }
 
 void loop()
